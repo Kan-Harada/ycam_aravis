@@ -247,23 +247,23 @@ static gboolean periodic_task_cb(void *data) {
         return FALSE;
 	}
 	else {
-		int tgcnt=pData->mode==1 ? 4: pData->frames;
+		int tgcnt=pData->mode==1 ? 5: pData->frames;
 		if(pData->counter==tgcnt) {
 			for(int j=0; j<pData->counter; j++) {
 				char fname[64];
-				if(pData->mode==0 || (pData->mode==1 && j<2)) {
+				if(pData->mode==0 || (pData->mode==1 && j<3)) {
 					sprintf(fname,"/tmp/raw%02d.pgm",j);
 					imwrite(fname,pData->img[j]);
 				}
 				else if(pData->mode==1){
-					sprintf(fname,"/tmp/phase%02d.dat",j-2);
+					sprintf(fname,"/tmp/phase%02d.dat",j-3);
 					phwrite(fname,pData->img[j]);
 				}
 			}
 		}
 		cout<<"ack("<<i++<<")="<<pData->counter<<endl;
 		sleep(1);
-		pData->ack=pData->mode==1 ? 4: pData->frames;
+		pData->ack=pData->mode==1 ? 5: pData->frames;
 		pData->counter=0;
 		unsigned long wdata=pData->frames;
 		if(pData->mode==1) {
@@ -277,11 +277,11 @@ static gboolean periodic_task_cb(void *data) {
 
 
 int main(int argc,char **argv) {
-	cerr<<"-------------------------------------------"<<endl;
+	cerr<<"------------------------------------------------"<<endl;
 	cerr<<argv[0]<<":usage vga/sxga [CapCount] [Mode=0/1]"<<endl;
 	cerr<<argv[0]<<":default=sxga 13 0"<<endl;
 	cerr<<"Mode(1) send decoded code/phase data."<<endl;
-	cerr<<"-------------------------------------------"<<endl;
+	cerr<<"------------------------------------------------"<<endl;
 	int width,height,capcnt,mode;
 	if(argc>=2 && !strcmp(argv[1],"vga")) {
 		width=1280; height=480;
