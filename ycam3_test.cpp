@@ -51,6 +51,7 @@ typedef struct
     int	frames;				// frame id
     int counter;			// counter for each capture for ps
     int	ack;				// ack for capture cmd and result
+    int mode;				// 0=transfer raw data,1=transfer w,bin,ph1,ph2
 	Mat *img;    			// buffers for each capture
 } ApplicationData;
 
@@ -69,8 +70,7 @@ ArvCamera *gCamera;
 ArvDevice *gDevice;
 
 /* get camera 
- *   return the first camera on interface
- */
+ *   return the first camera on interface */
 ArvCamera *get_camera(void) {
 	arv_update_device_list();
 	ArvCamera* camera=NULL;
@@ -85,9 +85,7 @@ ArvCamera *get_camera(void) {
 	return camera;
 }
 
-/*
- * get the camera IP address via GVCP
- */
+/* get the camera IP address via GVCP */
 std::string get_ipaddress(void) {
 	char ret[64];
 	unsigned int val;
@@ -96,16 +94,12 @@ std::string get_ipaddress(void) {
 	return ret;
 }
 
-/*
- * set camera register
- */
+/* set camera register */
 void set_ycam(int addr,int val) {
 	arv_device_write_register(gDevice,ycamreg[addr],val,NULL);
 }
 
-/*
- * write setting for projector
- */
+/* write setting for projector */
 void uart_write(const std::string wstr) {
 	for(int i=0; wstr.c_str()[i]!=0; i++) {
 		unsigned long dat=(~wstr.c_str()[i]<<16) | wstr.c_str()[i];
@@ -115,9 +109,7 @@ void uart_write(const std::string wstr) {
 	if(wstr.c_str()[0]=='d' || wstr.c_str()[0]=='D') sleep(1);
 	else usleep(200000);
 }
-/*
- * read projector uarwt buffer
- */
+/* read projector uarwt buffer */
 std::string uart_read(void) {
 	static char *ret=new char[8192];
 	ret[0]=0;
@@ -130,9 +122,7 @@ std::string uart_read(void) {
 	}
 	return ret;
 }
-/*
- * change trigger mode of projector
- */
+/* change trigger mode of projector */
 void pset_TrigMode(int f) {
 	char cmd[8];
 	sprintf(cmd,"a%d\n",f ? 1: 0);
@@ -140,9 +130,7 @@ void pset_TrigMode(int f) {
 	usleep(100000);
 	uart_read();
 }
-/*
- * load projector pattern(wait for 3 seconds after setting)
- */
+/* load projector pattern(wait for 3 seconds after setting) */
 void pset_PatternLoad(int ptn) {
 	char cmd[8];
 	sprintf(cmd,"z%d\n",ptn);
@@ -150,9 +138,7 @@ void pset_PatternLoad(int ptn) {
 	usleep(100000);
 	uart_read();
 }
-/*
- * set projector exposure time(call pattern setting after setting exptime)
- */
+/* set projector exposure time(call pattern setting after setting exptime) */
 void pset_ExposureTime(int et) {
 	char cmd[8];
 	sprintf(cmd,"x%d\n",et);
@@ -160,9 +146,7 @@ void pset_ExposureTime(int et) {
 	usleep(100000);
 	uart_read();
 }
-/*
- * set projector brightness
- */
+/* set projector brightness */
 void pset_Intensity(int intens) {
 	char cmd[32];
 	sprintf(cmd,"i%02x%02x%02x\n",intens,intens,intens);
@@ -178,6 +162,20 @@ void pset_Interval(int it) {
 	uart_read();
 }
 
+/* save phase data */
+void phwrite(char *fname,Mat &m) {
+	FILE *fp=fopen(fname,"wb");
+	for(int i=0; i<m.rows; i++) {
+		unsigned short *sp=(unsigned short*)m.ptr<unsigned char>(i);
+		for(int j=0; j<m.cols; j++) {
+			float val=(float)*sp++/(float)0x1fff;
+			fwrite(&val,sizeof(float),1,fp);
+		}
+	}
+	fclose(fp);
+}
+
+/* convert aravis image to opencv Mat image */
 void copyArvImage(ArvBuffer * buffer, Mat &m) {
 	size_t buffer_size;
 	char *buffer_dat=(char*)arv_buffer_get_data(buffer,&buffer_size);
@@ -194,6 +192,7 @@ void copyArvImage(ArvBuffer * buffer, Mat &m) {
 	}
 }
 
+/* stream callback called, initialize stream */
 static void stream_cb(void* args, ArvStreamCallbackType type, ArvBuffer*buf) {
 	if (type == ARV_STREAM_CALLBACK_TYPE_INIT) {
 		if(arv_option_realtime) {
@@ -210,6 +209,7 @@ static void stream_cb(void* args, ArvStreamCallbackType type, ArvBuffer*buf) {
 	}
 }
 
+/* create stream (open GVCP)*/
 ArvGvStream *CreateStream(void) {
 	ArvGvStream *stream=(ArvGvStream*)arv_device_create_stream(gDevice,stream_cb,NULL);
 	if(stream) {
@@ -223,7 +223,7 @@ ArvGvStream *CreateStream(void) {
 	return stream;
 }
 
-
+/* stream callback */
 static void new_buffer_cb (ArvStream *stream,ApplicationData *data) {
 	ApplicationData *pData=(ApplicationData*)data;
 	ArvBuffer *buffer;
@@ -238,6 +238,7 @@ static void new_buffer_cb (ArvStream *stream,ApplicationData *data) {
 	}
 }
 
+/* timer callback - create capture event*/
 static gboolean periodic_task_cb(void *data) {
 	static int i;
 	ApplicationData *pData=(ApplicationData*)data;
@@ -246,29 +247,42 @@ static gboolean periodic_task_cb(void *data) {
         return FALSE;
 	}
 	else {
-		if(pData->counter==pData->frames) {
+		int tgcnt=pData->mode==1 ? 4: pData->frames;
+		if(pData->counter==tgcnt) {
 			for(int j=0; j<pData->counter; j++) {
 				char fname[64];
-				sprintf(fname,"/tmp/raw%02d.pgm",j);
-				imwrite(fname,pData->img[j]);
+				if(pData->mode==0 || (pData->mode==1 && j<2)) {
+					sprintf(fname,"/tmp/raw%02d.pgm",j);
+					imwrite(fname,pData->img[j]);
+				}
+				else if(pData->mode==1){
+					sprintf(fname,"/tmp/phase%02d.dat",j-2);
+					phwrite(fname,pData->img[j]);
+				}
 			}
 		}
 		cout<<"ack("<<i++<<")="<<pData->counter<<endl;
 		sleep(1);
-		pData->ack=pData->frames;
+		pData->ack=pData->mode==1 ? 4: pData->frames;
 		pData->counter=0;
-		arv_device_write_register(gDevice,CAPTURE_CNT,pData->frames,NULL);
+		unsigned long wdata=pData->frames;
+		if(pData->mode==1) {
+			wdata|=0x0200;
+			wdata=((~wdata)<<16) | wdata;
+		}
+		arv_device_write_register(gDevice,CAPTURE_CNT,wdata,NULL);
 	}
 	return TRUE;
 }
 
 
 int main(int argc,char **argv) {
-	if(argc!=3) {
-		cerr<<argv[0]<<":usage vga/sxga [CapCount]"<<endl;
-		cerr<<argv[0]<<":default=sxga 13"<<endl;
-	}
-	int width,height,capcnt;
+	cerr<<"-------------------------------------------"<<endl;
+	cerr<<argv[0]<<":usage vga/sxga [CapCount] [Mode=0/1]"<<endl;
+	cerr<<argv[0]<<":default=sxga 13 0"<<endl;
+	cerr<<"Mode(1) send decoded code/phase data."<<endl;
+	cerr<<"-------------------------------------------"<<endl;
+	int width,height,capcnt,mode;
 	if(argc>=2 && !strcmp(argv[1],"vga")) {
 		width=1280; height=480;
 	}
@@ -276,6 +290,7 @@ int main(int argc,char **argv) {
 		width=2560; height=1024;
 	}
 	capcnt=argc>=3 ? atoi(argv[2]): 13;
+	mode=argc>=4 ? atoi(argv[3]): 0;
 	gCamera=get_camera();
 	if(gCamera==NULL) {
 		cout<<"No Camera. exit!"<<endl;
@@ -294,15 +309,16 @@ int main(int argc,char **argv) {
 	arv_device_set_integer_feature_value(gDevice,"Height",height);
 	arv_device_set_integer_feature_value(gDevice,"Width",width);
 	set_ycam(exposure_time,8300);
-	set_ycam(acquisition_fps,width==2560 ? 60: 116);
+	set_ycam(acquisition_fps,width==2560 ? 60: 110);
 	arv_camera_gv_set_packet_size(gCamera,8192);
 	pset_TrigMode(0);        usleep(500000);
 	pset_ExposureTime(8333); usleep(500000);
- 	pset_Intensity(120);     usleep(500000);
+ 	pset_Intensity(100);     usleep(500000);
  	pset_Interval(10);       usleep(500000);
    	pset_PatternLoad(1);     sleep(3);
 	pset_TrigMode(1);        usleep(500000);
 
+	// open stream(GVCP)
 	ArvGvStream *stream=NULL;
 	for(;stream==NULL;) {
 		stream=CreateStream();
@@ -312,24 +328,26 @@ int main(int argc,char **argv) {
 		}
 	}
 
-	ApplicationData ad={NULL,capcnt,0,0,NULL};
+	ApplicationData ad={NULL,capcnt,0,0,mode,NULL};
 	ad.img=new Mat[ad.frames];
+	// get capture buffer
 	for(int i=0; i<ad.frames; i++) {
 		ad.img[i]=Mat_<uchar>(height,width);
 	}
-	g_signal_connect(stream,"new-buffer",G_CALLBACK(new_buffer_cb),&ad);
-	g_signal_connect(gDevice,"control_lost",G_CALLBACK(ctl_lost_cb),NULL);
-	g_timeout_add_seconds(2,periodic_task_cb,&ad);
+	g_signal_connect(stream,"new-buffer",G_CALLBACK(new_buffer_cb),&ad); // capture callback
+	g_signal_connect(gDevice,"control_lost",G_CALLBACK(ctl_lost_cb),NULL); // lost camera callback
+	g_timeout_add_seconds(2,periodic_task_cb,&ad); // timer callback
 	arv_stream_set_emit_signals((ArvStream*)stream,TRUE);
 
 	void (*sigint_handler_old)(int)=signal(SIGINT,set_exit);
 
 	arv_device_execute_command(gDevice,"AcquisitionStart");
 	ad.main_loop = g_main_loop_new (NULL,FALSE);
-	g_main_loop_run(ad.main_loop);
+	g_main_loop_run(ad.main_loop); // waiting
 
 	cerr<<"Exiting ... "<<argv[0]<<endl;
 	signal(SIGINT,sigint_handler_old);
+	// wait for all capture done
 	while(ad.ack>0) {
 		usleep(10000);
 	}
