@@ -47,7 +47,7 @@ static gboolean arv_option_high_priority = TRUE;
 static gboolean loop_exit=FALSE;
 typedef struct 
 {
-    GMainLoop *main_loop;	// waint for finish program
+    GMainLoop *main_loop;	// wait for finish program
     int	frames;				// frame id
     int counter;			// counter for each capture for ps
     int	ack;				// ack for capture cmd and result
