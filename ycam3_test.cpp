@@ -209,7 +209,7 @@ static void stream_cb(void* args, ArvStreamCallbackType type, ArvBuffer*buf) {
 	}
 }
 
-/* create stream (open GVCP)*/
+/* create stream (open GVSP)*/
 ArvGvStream *CreateStream(void) {
 	ArvGvStream *stream=(ArvGvStream*)arv_device_create_stream(gDevice,stream_cb,NULL);
 	if(stream) {
