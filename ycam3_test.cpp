@@ -318,7 +318,7 @@ int main(int argc,char **argv) {
    	pset_PatternLoad(1);     sleep(3);
 	pset_TrigMode(1);        usleep(500000);
 
-	// open stream(GVCP)
+	// open stream(GVP)
 	ArvGvStream *stream=NULL;
 	for(;stream==NULL;) {
 		stream=CreateStream();
