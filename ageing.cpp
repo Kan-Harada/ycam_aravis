@@ -39,49 +39,8 @@ unsigned long ycamreg[]={
 	SERIAL_PORT
 };
 
-
-enum {
-	E4,
-	E8,
-	E16,
-	E24,
-	E32
-};
-unsigned long camera_exposure[] {
-	4000,
-	8000,
-	16000,
-	24000,
-	32000,
-};
-
-unsigned long proj_exposure[] {
-	8333,
-	8333,
-	16000,
-	24000,
-	32000,
-};
-
-unsigned long fps_vga[] {
-	116,
-	116,
-	60,
-	40,
-	30,
-};
-unsigned long fps_sxga[] {
-	60,
-	60,
-	60,
-	40,
-	30,
-};
-
-
 #define PACKET_TIMEOUT	1000
 #define FRAME_RETENTION	200000
-static int width,height,exposure;
 static std::string ip;
 static gboolean arv_option_realtime = TRUE;
 static gboolean arv_option_high_priority = TRUE;
@@ -161,6 +120,7 @@ std::string uart_read(void) {
 		if(ret[i]==0) break;
 		ret[i+1]=0;
 	}
+	cout<<ret<<endl;
 	return ret;
 }
 /* change trigger mode of projector */
@@ -170,6 +130,7 @@ void pset_TrigMode(int f) {
 	uart_write(cmd);
 	usleep(100000);
 	uart_read();
+	cout<<"# Set Tigger Mode: "<<f<<endl;
 }
 /* load projector pattern(wait for 3 seconds after setting) */
 void pset_PatternLoad(int ptn) {
@@ -178,6 +139,7 @@ void pset_PatternLoad(int ptn) {
 	uart_write(cmd);
 	usleep(100000);
 	uart_read();
+	cout<<"# Load Pattern: "<<ptn<<endl;
 }
 /* set projector exposure time(call pattern setting after setting exptime) */
 void pset_ExposureTime(int et) {
@@ -186,6 +148,7 @@ void pset_ExposureTime(int et) {
 	uart_write(cmd);
 	usleep(100000);
 	uart_read();
+	cout<<"# Set ExposureTime: "<<et<<endl;
 }
 /* set projector brightness */
 void pset_Intensity(int intens) {
@@ -194,6 +157,7 @@ void pset_Intensity(int intens) {
 	uart_write(cmd);
 	usleep(100000);
 	uart_read();
+	cout<<"# Set Intensity: "<<intens<<endl;
 }
 void pset_Interval(int it) {
 	char cmd[8];
@@ -201,20 +165,18 @@ void pset_Interval(int it) {
 	uart_write(cmd);
 	usleep(100000);
 	uart_read();
+	cout<<"# Set Interval: "<<it<<endl;
 }
-
-void set_exposure(int et) {
-	set_ycam(acquisition_fps,10);
-	set_ycam(exposure_time,camera_exposure[et]);
-	if(width==2560) {
-		set_ycam(acquisition_fps,fps_sxga[et]);
-	} else { 
-		set_ycam(acquisition_fps,fps_vga[et]);
-	}
- 	pset_TrigMode(0);        usleep(100000);
- 	pset_ExposureTime(proj_exposure[et]); usleep(100000);
- 	pset_PatternLoad(1);     usleep(500000);
-	pset_TrigMode(1);        usleep(100000);
+void pset_capture(void) {
+	uart_write("o2\n");
+	usleep(100000);
+	uart_read();
+	cout<<"# Exec Capture"<<endl;
+}
+void pget_temp(void) {
+	uart_write("g\n");
+	usleep(100000);
+	cout<<"# Get Temperature: "<<uart_read()<<endl;
 }
 
 /* save phase data */
@@ -234,16 +196,16 @@ void phwrite(char *fname,Mat &m) {
 void copyArvImage(ArvBuffer * buffer, Mat &m) {
 	size_t buffer_size;
 	char *buffer_dat=(char*)arv_buffer_get_data(buffer,&buffer_size);
-	int _width; int _height;
-	arv_buffer_get_image_region(buffer,NULL,NULL,&_width,&_height);
+	int width; int height;
+	arv_buffer_get_image_region(buffer,NULL,NULL,&width,&height);
 	int bit_depth=ARV_PIXEL_FORMAT_BIT_PER_PIXEL(arv_buffer_get_image_pixel_format(buffer));
 
-	if(m.cols!=_width || m.rows!=_height) {
-		cerr<<"new Mat("<<m.cols<<","<<m.rows<<"),("<<_width<<","<<_height<<")"<<endl;
-		m=Mat_<unsigned char>(_height,_width);
+	if(m.cols!=width || m.rows!=height) {
+		cerr<<"new Mat("<<m.cols<<","<<m.rows<<"),("<<width<<","<<height<<")"<<endl;
+		m=Mat_<unsigned char>(height,width);
 	}
-	for(int i=0; i<_height; i++) {
-		memcpy(m.ptr<unsigned char>(i),&buffer_dat[i*_width],_width);
+	for(int i=0; i<height; i++) {
+		memcpy(m.ptr<unsigned char>(i),&buffer_dat[i*width],width);
 	}
 }
 
@@ -317,9 +279,6 @@ static gboolean periodic_task_cb(void *data) {
 			}
 		}
 		cout<<"ack("<<i++<<")="<<pData->counter<<endl;
-	//=test - repeat setting for exposure= 
-		set_exposure(exposure);
-	//====================================
 		sleep(1);
 		pData->ack=pData->mode==1 ? 5: pData->frames;
 		pData->counter=0;
@@ -328,7 +287,9 @@ static gboolean periodic_task_cb(void *data) {
 			wdata|=0x0200;
 			wdata=((~wdata)<<16) | wdata;
 		}
-		arv_device_write_register(gDevice,CAPTURE_CNT,wdata,NULL);
+// 		arv_device_write_register(gDevice,CAPTURE_CNT,wdata,NULL);
+		pset_capture();
+		pget_temp();
 	}
 	return TRUE;
 }
@@ -336,11 +297,11 @@ static gboolean periodic_task_cb(void *data) {
 
 int main(int argc,char **argv) {
 	cerr<<"------------------------------------------------"<<endl;
-	cerr<<argv[0]<<":usage vga/sxga [CapCount] [Exposure=0,1,2,3,4] [Intensity=0~255] [Mode=0/1]"<<endl;
+	cerr<<argv[0]<<":usage vga/sxga [CapCount] [Mode=0/1]"<<endl;
 	cerr<<argv[0]<<":default=sxga 13 0"<<endl;
 	cerr<<"Mode(1) send decoded code/phase data."<<endl;
 	cerr<<"------------------------------------------------"<<endl;
-	int capcnt,mode,intensity;
+	int width,height,capcnt,mode;
 	if(argc>=2 && !strcmp(argv[1],"vga")) {
 		width=1280; height=480;
 	}
@@ -348,9 +309,7 @@ int main(int argc,char **argv) {
 		width=2560; height=1024;
 	}
 	capcnt=argc>=3 ? atoi(argv[2]): 13;
-	exposure=argc>=4 ? atoi(argv[3]): 1;
-	intensity=argc>=5 ? atoi(argv[4]): 100;
-	mode=argc>=6 ? atoi(argv[5]): 0;
+	mode=argc>=4 ? atoi(argv[3]): 0;
 	gCamera=get_camera();
 	if(gCamera==NULL) {
 		cout<<"No Camera. exit!"<<endl;
@@ -365,15 +324,16 @@ int main(int argc,char **argv) {
 	uart_read();
 
 	//Setup YCAM3D
-	arv_device_set_integer_feature_value(gDevice,"TriggerMode",1);
+ 	arv_device_set_integer_feature_value(gDevice,"TriggerMode",1);
 	arv_device_set_integer_feature_value(gDevice,"Height",height);
 	arv_device_set_integer_feature_value(gDevice,"Width",width);
+	set_ycam(exposure_time,8300);
+	set_ycam(acquisition_fps,width==20);
 	arv_camera_gv_set_packet_size(gCamera,8192);
-	pset_TrigMode(0);         usleep(100000);
- 	pset_Intensity(intensity);usleep(100000);
- 	pset_Interval(10);        usleep(100000);
-	pset_TrigMode(1);         usleep(100000);
-	set_exposure(exposure);
+	pset_ExposureTime(20);usleep(500000);
+ 	pset_Intensity(250);     usleep(500000);
+ 	pset_Interval(60);       usleep(500000);
+   	pset_PatternLoad(1);     sleep(3);
 
 	// open stream(GVP)
 	ArvGvStream *stream=NULL;

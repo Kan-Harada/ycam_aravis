@@ -331,7 +331,7 @@ int main(int argc,char **argv) {
 	set_ycam(acquisition_fps,width==20);
 	arv_camera_gv_set_packet_size(gCamera,8192);
 	pset_ExposureTime(30);usleep(500000);
- 	pset_Intensity(250);     usleep(500000);
+ 	pset_Intensity(255);     usleep(500000);
  	pset_Interval(60);       usleep(500000);
    	pset_PatternLoad(1);     sleep(3);
 
@@ -353,7 +353,7 @@ int main(int argc,char **argv) {
 	}
 	g_signal_connect(stream,"new-buffer",G_CALLBACK(new_buffer_cb),&ad); // capture callback
 	g_signal_connect(gDevice,"control_lost",G_CALLBACK(ctl_lost_cb),NULL); // lost camera callback
-	g_timeout_add_seconds(3,periodic_task_cb,&ad); // timer callback
+	g_timeout_add_seconds(2,periodic_task_cb,&ad); // timer callback
 	arv_stream_set_emit_signals((ArvStream*)stream,TRUE);
 
 	void (*sigint_handler_old)(int)=signal(SIGINT,set_exit);
