@@ -95,6 +95,7 @@ typedef struct
     int mode;				// 0=transfer raw data,1=transfer w,bin,ph1,ph2
 	Mat *img;    			// buffers for each capture
 } ApplicationData;
+ApplicationData *adp;
 
 /* catch the exiting signal */
 static void set_exit(int signal) {
@@ -221,7 +222,10 @@ void set_exposure(int et) {
 	int vres=1;
 	do {
 		pset_ExposureTime(proj_exposure[et]);
-		pset_PatternLoad(1);
+		if(adp)
+			pset_PatternLoad(adp->frames==13 ? 1: 4);
+		else
+			pset_PatternLoad(1);
 		vres=pset_validate();
 		cout<<"validate result="<<vres<<endl;
 	} while(vres);
@@ -401,6 +405,7 @@ int main(int argc,char **argv) {
 	}
 
 	ApplicationData ad={NULL,capcnt,0,0,mode,NULL};
+	adp=&ad;
 	ad.img=new Mat[ad.frames];
 	// get capture buffer
 	for(int i=0; i<ad.frames; i++) {
