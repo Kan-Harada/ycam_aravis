@@ -163,14 +163,6 @@ std::string uart_read(void) {
 	}
 	return ret;
 }
-/* change trigger mode of projector */
-void pset_TrigMode(int f) {
-	char cmd[8];
-	sprintf(cmd,"a%d\n",f ? 1: 0);
-	uart_write(cmd);
-	usleep(100000);
-	uart_read();
-}
 /* load projector pattern(wait for 3 seconds after setting) */
 void pset_PatternLoad(int ptn) {
 	char cmd[8];
@@ -202,6 +194,20 @@ void pset_Interval(int it) {
 	usleep(100000);
 	uart_read();
 }
+/* validate setting - execute after changing parameter */
+int pset_validate(void) {
+	uart_write("v\n");
+	usleep(400000);
+	return atoi(uart_read().c_str());
+}
+/* stop(0)/go(2) execute after validating */ 
+void pset_stopgo(int n) {
+	char cmd[8];
+	sprintf(cmd,"q%d\n",n);
+	uart_write(cmd);
+	usleep(100000);
+	uart_read();
+}
 
 void set_exposure(int et) {
 	set_ycam(acquisition_fps,10);
@@ -211,10 +217,15 @@ void set_exposure(int et) {
 	} else { 
 		set_ycam(acquisition_fps,fps_vga[et]);
 	}
- 	pset_TrigMode(0);        usleep(100000);
- 	pset_ExposureTime(proj_exposure[et]); usleep(100000);
- 	pset_PatternLoad(1);     usleep(500000);
-	pset_TrigMode(1);        usleep(100000);
+	pset_stopgo(0);
+	int vres=1;
+	do {
+		pset_ExposureTime(proj_exposure[et]);
+		pset_PatternLoad(1);
+		vres=pset_validate();
+		cout<<"validate result="<<vres<<endl;
+	} while(vres);
+	pset_stopgo(2);
 }
 
 /* save phase data */
@@ -316,19 +327,25 @@ static gboolean periodic_task_cb(void *data) {
 				}
 			}
 		}
-		cout<<"ack("<<i++<<")="<<pData->counter<<endl;
-	//=test - repeat setting for exposure= 
-		set_exposure(exposure);
-	//====================================
-		sleep(1);
-		pData->ack=pData->mode==1 ? 5: pData->frames;
-		pData->counter=0;
-		unsigned long wdata=pData->frames;
-		if(pData->mode==1) {
-			wdata|=0x0200;
-			wdata=((~wdata)<<16) | wdata;
+		int m=mean(pData->img[1])[0];
+		cout<<"ack("<<i++<<")="<<pData->counter<<", mean="<<m<<endl;
+		if(pData->counter!=0 && m<180) {
+			loop_exit=TRUE;
+			g_main_loop_quit(pData->main_loop);
+			return FALSE;
 		}
-		arv_device_write_register(gDevice,CAPTURE_CNT,wdata,NULL);
+		else {
+			pData->ack=pData->mode==1 ? 5: pData->frames;
+			pData->counter=0;
+			unsigned long wdata=pData->frames;
+			if(pData->mode==1) {
+				wdata|=0x0200;
+				wdata=((~wdata)<<16) | wdata;
+			}
+			arv_device_write_register(gDevice,CAPTURE_CNT,wdata,NULL);
+			sleep(1);
+			set_exposure(exposure);
+		}
 	}
 	return TRUE;
 }
@@ -369,10 +386,8 @@ int main(int argc,char **argv) {
 	arv_device_set_integer_feature_value(gDevice,"Height",height);
 	arv_device_set_integer_feature_value(gDevice,"Width",width);
 	arv_camera_gv_set_packet_size(gCamera,8192);
-	pset_TrigMode(0);         usleep(100000);
  	pset_Intensity(intensity);usleep(100000);
  	pset_Interval(10);        usleep(100000);
-	pset_TrigMode(1);         usleep(100000);
 	set_exposure(exposure);
 
 	// open stream(GVP)
@@ -393,7 +408,7 @@ int main(int argc,char **argv) {
 	}
 	g_signal_connect(stream,"new-buffer",G_CALLBACK(new_buffer_cb),&ad); // capture callback
 	g_signal_connect(gDevice,"control_lost",G_CALLBACK(ctl_lost_cb),NULL); // lost camera callback
-	g_timeout_add_seconds(5,periodic_task_cb,&ad); // timer callback
+	g_timeout_add_seconds(3,periodic_task_cb,&ad); // timer callback
 	arv_stream_set_emit_signals((ArvStream*)stream,TRUE);
 
 	void (*sigint_handler_old)(int)=signal(SIGINT,set_exit);
@@ -409,7 +424,6 @@ int main(int argc,char **argv) {
 		usleep(10000);
 	}
 	g_main_loop_unref(ad.main_loop);
-	pset_TrigMode(0);
 	arv_device_execute_command(gDevice, "AcquisitionStop");
 	arv_stream_set_emit_signals((ArvStream*)stream,FALSE);
 	g_object_unref(stream);
