@@ -390,9 +390,26 @@ int main(int argc,char **argv) {
 	arv_device_set_integer_feature_value(gDevice,"Height",height);
 	arv_device_set_integer_feature_value(gDevice,"Width",width);
 	arv_camera_gv_set_packet_size(gCamera,8192);
+
+	pset_stopgo(0);
  	pset_Intensity(intensity);usleep(100000);
  	pset_Interval(10);        usleep(100000);
-	set_exposure(exposure);
+
+	set_ycam(acquisition_fps,10);
+	set_ycam(exposure_time,camera_exposure[exposure]);
+	if(width==2560) {
+		set_ycam(acquisition_fps,fps_sxga[exposure]);
+	} else { 
+		set_ycam(acquisition_fps,fps_vga[exposure]);
+	}
+	int vres=1;
+	do {
+		pset_ExposureTime(proj_exposure[exposure]);
+		pset_PatternLoad(capcnt==13 ? 1: 4);
+		vres=pset_validate();
+		cout<<"validate result="<<vres<<endl;
+	} while(vres);
+	pset_stopgo(2);
 
 	// open stream(GVP)
 	ArvGvStream *stream=NULL;
