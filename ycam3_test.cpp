@@ -6,6 +6,10 @@
 #include <opencv2/opencv.hpp>
 #include <assert.h>
 
+#include <sys/types.h>
+#include <fcntl.h>
+#include <pthread.h>
+
 using namespace std;
 using namespace cv;
 
@@ -81,6 +85,8 @@ unsigned long fps_sxga[] {
 
 #define PACKET_TIMEOUT	1000
 #define FRAME_RETENTION	200000
+static pthread_t tid;
+static char keycmd[16];
 static int width,height,exposure;
 static std::string ip;
 static gboolean arv_option_realtime = TRUE;
@@ -93,6 +99,7 @@ typedef struct
     int counter;			// counter for each capture for ps
     int	ack;				// ack for capture cmd and result
     int mode;				// 0=transfer raw data,1=transfer w,bin,ph1,ph2
+    int pmode;				// projector pattern(1,2,4)
 	Mat *img;    			// buffers for each capture
 } ApplicationData;
 ApplicationData *adp;
@@ -210,7 +217,7 @@ void pset_stopgo(int n) {
 	uart_read();
 }
 
-void set_exposure(int et) {
+void set_exposure(int et, int pmode) {
 	set_ycam(acquisition_fps,10);
 	set_ycam(exposure_time,camera_exposure[et]);
 	if(width==2560) {
@@ -222,10 +229,7 @@ void set_exposure(int et) {
 	int vres=1;
 	do {
 		pset_ExposureTime(proj_exposure[et]);
-		if(adp)
-			pset_PatternLoad(adp->frames==13 ? 1: 4);
-		else
-			pset_PatternLoad(1);
+		pset_PatternLoad(pmode);
 		vres=pset_validate();
 		cout<<"validate result="<<vres<<endl;
 	} while(vres);
@@ -311,9 +315,14 @@ static void new_buffer_cb (ArvStream *stream,ApplicationData *data) {
 /* timer callback - create capture event*/
 static gboolean periodic_task_cb(void *data) {
 	static int i;
+	static int run=1;
 	ApplicationData *pData=(ApplicationData*)data;
+	static int pm=pData->pmode;
+	int _pm=-1;
 	if(loop_exit==TRUE) {
  		g_main_loop_quit(pData->main_loop);
+//  		void *res;
+//  		pthread_join(tid,&res);
         return FALSE;
 	}
 	else {
@@ -331,29 +340,75 @@ static gboolean periodic_task_cb(void *data) {
 				}
 			}
 		}
+		if(keycmd[0]!=0) {
+			cout<<"keycmd="<<keycmd<<endl;
+			if(keycmd[0]=='q') {
+				loop_exit=TRUE;
+			}
+			else if(!strncmp(keycmd,"run",3)) {
+				run=1;
+			}
+			else if(!strncmp(keycmd,"stop",4)) {
+				run=0;
+			}
+			else if(keycmd[0]=='m') {
+				_pm=keycmd[1]-'0';
+				if(_pm!=1 && _pm!=2 && _pm!=4) _pm=4;
+			}
+			memset(keycmd,0,sizeof(keycmd));
+		}
 		int m=mean(pData->img[1])[0];
 		cout<<"ack("<<i++<<")="<<pData->counter<<", mean="<<m<<endl;
-		if(pData->counter!=0 && m<180) {
+		if(pData->counter!=0 && m<45*exposure) {
 			loop_exit=TRUE;
 			g_main_loop_quit(pData->main_loop);
 			return FALSE;
 		}
-		else {
+		else if(run){
 			pData->ack=pData->mode==1 ? 5: pData->frames;
 			pData->counter=0;
-			unsigned long wdata=pData->frames;
+			int n=13;
+			unsigned long wdata;
+			if(pm==1) {
+				wdata=pData->frames=13;
+				n=13;
+			}
+			else if(pm==2) {
+				wdata=pData->frames=1;
+				n=1;
+			}
+			else {
+				wdata=pData->frames=14;
+				n=14;
+			}
 			if(pData->mode==1) {
 				wdata|=0x0200;
 				wdata=((~wdata)<<16) | wdata;
 			}
 			arv_device_write_register(gDevice,CAPTURE_CNT,wdata,NULL);
 			sleep(1);
-			set_exposure(exposure);
+			if(_pm!=-1) {
+				pm=_pm;
+				set_exposure(exposure,pm);
+				cout<<"change pattern to "<<pm<<endl;
+			}
 		}
 	}
 	return TRUE;
 }
 
+void *cmd_input(void*) {
+	char buf[16];
+	memset(keycmd,0,16);
+	fcntl(0,F_SETFL,O_NONBLOCK);
+	do {
+		int n=scanf("%s",buf);
+		if(keycmd[0]==0) {
+			strcpy(keycmd,buf);
+			buf[0]=0;
+		}
+	} while(loop_exit!=TRUE);
+}
 
 int main(int argc,char **argv) {
 	cerr<<"------------------------------------------------"<<endl;
@@ -372,6 +427,11 @@ int main(int argc,char **argv) {
 	exposure=argc>=4 ? atoi(argv[3]): 1;
 	intensity=argc>=5 ? atoi(argv[4]): 100;
 	mode=argc>=6 ? atoi(argv[5]): 0;
+
+	//command input thread
+	pthread_create(&tid,NULL,cmd_input,(void*)NULL);
+
+
 	gCamera=get_camera();
 	if(gCamera==NULL) {
 		cout<<"No Camera. exit!"<<endl;
@@ -421,7 +481,7 @@ int main(int argc,char **argv) {
 		}
 	}
 
-	ApplicationData ad={NULL,capcnt,0,0,mode,NULL};
+	ApplicationData ad={NULL,capcnt,0,0,mode,capcnt==13 ? 1: 4,NULL};
 	adp=&ad;
 	ad.img=new Mat[ad.frames];
 	// get capture buffer
