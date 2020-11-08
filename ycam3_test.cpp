@@ -208,6 +208,21 @@ int pset_validate(void) {
 	usleep(400000);
 	return atoi(uart_read().c_str());
 }
+/* get LED temperature */
+int pset_gettemp(void) {
+	uart_write("g\n");
+	usleep(400000);
+	return atoi(uart_read().c_str());
+}
+void pset_getversion(void) {
+	uart_write("y\n");
+	usleep(100000);
+	char v[32];
+	strcpy(v,uart_read().c_str());
+	char *p=strchr(v,'\n');
+	*p=0;
+	cout<<"firmware version="<<v<<endl;
+}
 /* stop(0)/go(2) execute after validating */ 
 void pset_stopgo(int n) {
 	char cmd[8];
@@ -394,6 +409,7 @@ static gboolean periodic_task_cb(void *data) {
 			}
 		}
 	}
+	cout<<"temp="<<pset_gettemp()<<endl;
 	return TRUE;
 }
 
@@ -444,6 +460,7 @@ int main(int argc,char **argv) {
 	ip=get_ipaddress();
 	cout<<"IP Address: "<<ip<<endl;
 	uart_read();
+	pset_getversion();
 
 	//Setup YCAM3D
 	arv_device_set_integer_feature_value(gDevice,"TriggerMode",1);
