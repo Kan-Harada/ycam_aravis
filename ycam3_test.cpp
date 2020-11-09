@@ -206,7 +206,7 @@ void pset_Interval(int it) {
 int pset_validate(void) {
 	uart_write("v\n");
 	usleep(400000);
-	return atoi(uart_read().c_str());
+	return atoi(uart_read().c_str())&0x1f;
 }
 /* get LED temperature */
 int pset_gettemp(void) {
@@ -343,17 +343,17 @@ static gboolean periodic_task_cb(void *data) {
 	else {
 		int tgcnt=pData->mode==1 ? 5: pData->frames;
 		if(pData->counter==tgcnt) {
-			for(int j=0; j<pData->counter; j++) {
-				char fname[64];
-				if(pData->mode==0 || (pData->mode==1 && j<3)) {
-					sprintf(fname,"/tmp/raw%02d.pgm",j);
-					imwrite(fname,pData->img[j]);
-				}
-				else if(pData->mode==1){
-					sprintf(fname,"/tmp/phase%02d.dat",j-3);
-					phwrite(fname,pData->img[j]);
-				}
-			}
+// 			for(int j=0; j<pData->counter; j++) {
+// 				char fname[64];
+// 				if(pData->mode==0 || (pData->mode==1 && j<3)) {
+// 					sprintf(fname,"/tmp/raw%02d.pgm",j);
+// 					imwrite(fname,pData->img[j]);
+// 				}
+// 				else if(pData->mode==1){
+// 					sprintf(fname,"/tmp/phase%02d.dat",j-3);
+// 					phwrite(fname,pData->img[j]);
+// 				}
+// 			}
 		}
 		if(keycmd[0]!=0) {
 			cout<<"keycmd="<<keycmd<<endl;
@@ -401,7 +401,7 @@ static gboolean periodic_task_cb(void *data) {
 				wdata=((~wdata)<<16) | wdata;
 			}
 			arv_device_write_register(gDevice,CAPTURE_CNT,wdata,NULL);
-			sleep(1);
+			usleep(300000);
 			if(_pm!=-1) {
 				pm=_pm;
 				set_exposure(exposure,pm);
@@ -507,7 +507,7 @@ int main(int argc,char **argv) {
 	}
 	g_signal_connect(stream,"new-buffer",G_CALLBACK(new_buffer_cb),&ad); // capture callback
 	g_signal_connect(gDevice,"control_lost",G_CALLBACK(ctl_lost_cb),NULL); // lost camera callback
-	g_timeout_add_seconds(3,periodic_task_cb,&ad); // timer callback
+ 	g_timeout_add_seconds(1,periodic_task_cb,&ad); // timer callback
 	arv_stream_set_emit_signals((ArvStream*)stream,TRUE);
 
 	void (*sigint_handler_old)(int)=signal(SIGINT,set_exit);
