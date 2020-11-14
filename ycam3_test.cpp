@@ -49,7 +49,8 @@ enum {
 	E8,
 	E16,
 	E24,
-	E32
+	E32,
+	E50
 };
 unsigned long camera_exposure[] {
 	4000,
@@ -57,6 +58,7 @@ unsigned long camera_exposure[] {
 	16000,
 	24000,
 	32000,
+	49000
 };
 
 unsigned long proj_exposure[] {
@@ -65,6 +67,7 @@ unsigned long proj_exposure[] {
 	16000,
 	24000,
 	32000,
+	50000
 };
 
 unsigned long fps_vga[] {
@@ -73,6 +76,7 @@ unsigned long fps_vga[] {
 	60,
 	40,
 	30,
+	20
 };
 unsigned long fps_sxga[] {
 	60,
@@ -80,6 +84,7 @@ unsigned long fps_sxga[] {
 	60,
 	40,
 	30,
+	20
 };
 
 
@@ -146,6 +151,11 @@ std::string get_ipaddress(void) {
 /* set camera register */
 void set_ycam(int addr,int val) {
 	arv_device_write_register(gDevice,ycamreg[addr],val,NULL);
+	guint32 dat;
+	arv_device_read_register(gDevice,ycamreg[addr],(guint32*)&dat,NULL);
+	if(val!=dat) {
+		cout<<"failed YCAMREG["<<addr<<"]"<<val<<", result="<<dat<<endl;
+	}
 }
 
 /* write setting for projector */
@@ -202,11 +212,19 @@ void pset_Interval(int it) {
 	usleep(100000);
 	uart_read();
 }
+void pset_Reset(void) {
+	uart_write("r\n");
+	usleep(100000);
+	uart_read();
+}
 /* validate setting - execute after changing parameter */
 int pset_validate(void) {
 	uart_write("v\n");
 	usleep(400000);
-	return atoi(uart_read().c_str())&0x1f;
+	int ret=atoi(uart_read().c_str())&0x1f;
+	if(ret!=0) {
+		cout<<"validate result="<<ret<<endl;
+	}
 }
 /* get LED temperature */
 int pset_gettemp(void) {
@@ -246,7 +264,6 @@ void set_exposure(int et, int pmode) {
 		pset_ExposureTime(proj_exposure[et]);
 		pset_PatternLoad(pmode);
 		vres=pset_validate();
-		cout<<"validate result="<<vres<<endl;
 	} while(vres);
 	pset_stopgo(2);
 }
@@ -329,7 +346,7 @@ static void new_buffer_cb (ArvStream *stream,ApplicationData *data) {
 
 /* timer callback - create capture event*/
 static gboolean periodic_task_cb(void *data) {
-	static int i;
+	static int i,loopcnt=0,_m=0;
 	static int run=1;
 	ApplicationData *pData=(ApplicationData*)data;
 	static int pm=pData->pmode;
@@ -343,17 +360,17 @@ static gboolean periodic_task_cb(void *data) {
 	else {
 		int tgcnt=pData->mode==1 ? 5: pData->frames;
 		if(pData->counter==tgcnt) {
-// 			for(int j=0; j<pData->counter; j++) {
-// 				char fname[64];
-// 				if(pData->mode==0 || (pData->mode==1 && j<3)) {
-// 					sprintf(fname,"/tmp/raw%02d.pgm",j);
-// 					imwrite(fname,pData->img[j]);
-// 				}
-// 				else if(pData->mode==1){
-// 					sprintf(fname,"/tmp/phase%02d.dat",j-3);
-// 					phwrite(fname,pData->img[j]);
-// 				}
-// 			}
+			for(int j=0; j<pData->counter; j++) {
+				char fname[64];
+				if(pData->mode==0 || (pData->mode==1 && j<3)) {
+					sprintf(fname,"/tmp/raw%02d.pgm",j);
+					imwrite(fname,pData->img[j]);
+				}
+				else if(pData->mode==1){
+					sprintf(fname,"/tmp/phase%02d.dat",j-3);
+					phwrite(fname,pData->img[j]);
+				}
+			}
 		}
 		if(keycmd[0]!=0) {
 			cout<<"keycmd="<<keycmd<<endl;
@@ -370,11 +387,14 @@ static gboolean periodic_task_cb(void *data) {
 				_pm=keycmd[1]-'0';
 				if(_pm!=1 && _pm!=2 && _pm!=4) _pm=4;
 			}
+			else if(!strncmp(keycmd,"reset",5)) {
+				pset_Reset();
+			}
 			memset(keycmd,0,sizeof(keycmd));
 		}
 		int m=mean(pData->img[1])[0];
 		cout<<"ack("<<i++<<")="<<pData->counter<<", mean="<<m<<endl;
-		if(pData->counter!=0 && m<45*exposure) {
+		if(pData->counter!=0 && m<40*exposure) {
 			loop_exit=TRUE;
 			g_main_loop_quit(pData->main_loop);
 			return FALSE;
@@ -405,7 +425,7 @@ static gboolean periodic_task_cb(void *data) {
 			if(_pm!=-1) {
 				pm=_pm;
 				set_exposure(exposure,pm);
-				cout<<"change pattern to "<<pm<<endl;
+				cout<<loopcnt<<":change pattern to "<<pm<<endl;
 			}
 		}
 	}
@@ -428,7 +448,7 @@ void *cmd_input(void*) {
 
 int main(int argc,char **argv) {
 	cerr<<"------------------------------------------------"<<endl;
-	cerr<<argv[0]<<":usage vga/sxga [CapCount] [Exposure=0,1,2,3,4] [Intensity=0~255] [Mode=0/1]"<<endl;
+	cerr<<argv[0]<<":usage vga/sxga [CapCount] [Exposure=0,1,2,3,4,5] [Intensity=0~255] [Mode=0/1]"<<endl;
 	cerr<<argv[0]<<":default=sxga 13 0"<<endl;
 	cerr<<"Mode(1) send decoded code/phase data."<<endl;
 	cerr<<"------------------------------------------------"<<endl;
@@ -507,7 +527,7 @@ int main(int argc,char **argv) {
 	}
 	g_signal_connect(stream,"new-buffer",G_CALLBACK(new_buffer_cb),&ad); // capture callback
 	g_signal_connect(gDevice,"control_lost",G_CALLBACK(ctl_lost_cb),NULL); // lost camera callback
- 	g_timeout_add_seconds(1,periodic_task_cb,&ad); // timer callback
+ 	g_timeout_add_seconds(3,periodic_task_cb,&ad); // timer callback
 	arv_stream_set_emit_signals((ArvStream*)stream,TRUE);
 
 	void (*sigint_handler_old)(int)=signal(SIGINT,set_exit);
