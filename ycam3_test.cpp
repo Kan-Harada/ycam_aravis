@@ -186,41 +186,26 @@ void pset_PatternLoad(int ptn) {
 	char cmd[8];
 	sprintf(cmd,"z%d\n",ptn);
 	uart_write(cmd);
-	usleep(100000);
-	uart_read();
 }
 /* set projector exposure time(call pattern setting after setting exptime) */
 void pset_ExposureTime(int et) {
 	char cmd[8];
 	sprintf(cmd,"x%d\n",et);
 	uart_write(cmd);
-	usleep(100000);
-	uart_read();
 }
 /* set projector brightness */
 void pset_Intensity(int intens) {
 	char cmd[32];
 	sprintf(cmd,"i%02x%02x%02x\n",intens,intens,intens);
 	uart_write(cmd);
-	usleep(100000);
-	uart_read();
-}
-void pset_Interval(int it) {
-	char cmd[8];
-	sprintf(cmd,"o%d\n",it);
-	uart_write(cmd);
-	usleep(100000);
-	uart_read();
 }
 void pset_Reset(void) {
 	uart_write("r\n");
-	usleep(100000);
-	uart_read();
 }
 /* validate setting - execute after changing parameter */
 int pset_validate(void) {
 	uart_write("v\n");
-	usleep(400000);
+	usleep(500000);
 	int ret=atoi(uart_read().c_str())&0x1f;
 	if(ret!=0) {
 		cout<<"validate result="<<ret<<endl;
@@ -229,7 +214,13 @@ int pset_validate(void) {
 /* get LED temperature */
 int pset_gettemp(void) {
 	uart_write("g\n");
-	usleep(400000);
+	usleep(100000);
+	return atoi(uart_read().c_str());
+}
+/* get LED Intensity */
+int pset_getintensity(void) {
+	uart_write("i\n");
+	usleep(100000);
 	return atoi(uart_read().c_str());
 }
 void pset_getversion(void) {
@@ -347,10 +338,13 @@ static void new_buffer_cb (ArvStream *stream,ApplicationData *data) {
 /* timer callback - create capture event*/
 static gboolean periodic_task_cb(void *data) {
 	static int i,loopcnt=0,_m=0;
-	static int run=1;
+	static int run=1,timeout=0;
 	ApplicationData *pData=(ApplicationData*)data;
 	static int pm=pData->pmode;
 	int _pm=-1;
+	if(loopcnt++==0) {
+		set_exposure(exposure,pm);
+	}
 	if(loop_exit==TRUE) {
  		g_main_loop_quit(pData->main_loop);
 //  		void *res;
@@ -360,6 +354,7 @@ static gboolean periodic_task_cb(void *data) {
 	else {
 		int tgcnt=pData->mode==1 ? 5: pData->frames;
 		if(pData->counter==tgcnt) {
+			timeout=0;
 			for(int j=0; j<pData->counter; j++) {
 				char fname[64];
 				if(pData->mode==0 || (pData->mode==1 && j<3)) {
@@ -390,16 +385,21 @@ static gboolean periodic_task_cb(void *data) {
 			else if(!strncmp(keycmd,"reset",5)) {
 				pset_Reset();
 			}
+			else if(keycmd[0]=='b') {
+				cout<<"LED Intensity="<<pset_getintensity()<<endl;
+			}
 			memset(keycmd,0,sizeof(keycmd));
 		}
 		int m=mean(pData->img[1])[0];
 		cout<<"ack("<<i++<<")="<<pData->counter<<", mean="<<m<<endl;
-		if(pData->counter!=0 && m<40*exposure) {
+		if((pData->counter!=0 && m<40*exposure) || timeout) {
+			if(timeout) cerr<<"## timeout error ##"<<endl;
 			loop_exit=TRUE;
 			g_main_loop_quit(pData->main_loop);
 			return FALSE;
 		}
 		else if(run){
+			timeout=1;
 			pData->ack=pData->mode==1 ? 5: pData->frames;
 			pData->counter=0;
 			int n=13;
@@ -487,26 +487,7 @@ int main(int argc,char **argv) {
 	arv_device_set_integer_feature_value(gDevice,"Height",height);
 	arv_device_set_integer_feature_value(gDevice,"Width",width);
 	arv_camera_gv_set_packet_size(gCamera,8192);
-
-	pset_stopgo(0);
- 	pset_Intensity(intensity);usleep(100000);
- 	pset_Interval(10);        usleep(100000);
-
-	set_ycam(acquisition_fps,10);
-	set_ycam(exposure_time,camera_exposure[exposure]);
-	if(width==2560) {
-		set_ycam(acquisition_fps,fps_sxga[exposure]);
-	} else { 
-		set_ycam(acquisition_fps,fps_vga[exposure]);
-	}
-	int vres=1;
-	do {
-		pset_ExposureTime(proj_exposure[exposure]);
-		pset_PatternLoad(capcnt==13 ? 1: 4);
-		vres=pset_validate();
-		cout<<"validate result="<<vres<<endl;
-	} while(vres);
-	pset_stopgo(2);
+ 	pset_Intensity(intensity);
 
 	// open stream(GVP)
 	ArvGvStream *stream=NULL;
