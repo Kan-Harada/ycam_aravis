@@ -237,8 +237,6 @@ void pset_stopgo(int n) {
 	char cmd[8];
 	sprintf(cmd,"q%d\n",n);
 	uart_write(cmd);
-	usleep(100000);
-	uart_read();
 }
 
 void set_exposure(int et, int pmode) {
