@@ -223,6 +223,12 @@ int pset_getintensity(void) {
 	usleep(100000);
 	return atoi(uart_read().c_str());
 }
+/* get SW status */
+int pset_SW(void) {
+	uart_write("j\n");
+	usleep(100000);
+	return atoi(uart_read().c_str());
+}
 void pset_getversion(void) {
 	uart_write("y\n");
 	usleep(100000);
@@ -378,7 +384,7 @@ static gboolean periodic_task_cb(void *data) {
 			}
 			else if(keycmd[0]=='m') {
 				_pm=keycmd[1]-'0';
-				if(_pm!=1 && _pm!=2 && _pm!=4) _pm=4;
+				if(_pm!=1 && _pm!=2 && _pm!=5) _pm=5;
 			}
 			else if(!strncmp(keycmd,"reset",5)) {
 				pset_Reset();
@@ -418,7 +424,7 @@ static gboolean periodic_task_cb(void *data) {
 				wdata|=0x0200;
 				wdata=((~wdata)<<16) | wdata;
 			}
-			arv_device_write_register(gDevice,CAPTURE_CNT,wdata,NULL);
+ 			arv_device_write_register(gDevice,CAPTURE_CNT,wdata,NULL);
 			usleep(300000);
 			if(_pm!=-1) {
 				pm=_pm;
@@ -428,6 +434,7 @@ static gboolean periodic_task_cb(void *data) {
 		}
 	}
 	cout<<"temp="<<pset_gettemp()<<endl;
+	cout<<"sw  ="<<(pset_SW() ? "ON":"OFF")<<endl;
 	return TRUE;
 }
 
@@ -497,7 +504,7 @@ int main(int argc,char **argv) {
 		}
 	}
 
-	ApplicationData ad={NULL,capcnt,0,0,mode,capcnt==13 ? 1: 4,NULL};
+	ApplicationData ad={NULL,capcnt,0,0,mode,capcnt==13 ? 1: 5,NULL};
 	adp=&ad;
 	ad.img=new Mat[ad.frames];
 	// get capture buffer
